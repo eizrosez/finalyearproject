@@ -1,0 +1,348 @@
+import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'dart:math';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'dart:convert';
+
+class MoodLoggingPage extends StatefulWidget {
+  final Function(Map<String, dynamic>) onMoodLogged;
+
+  const MoodLoggingPage({Key? key, required this.onMoodLogged}) : super(key: key);
+
+  @override
+  _MoodLoggingPageState createState() => _MoodLoggingPageState();
+}
+
+class _MoodLoggingPageState extends State<MoodLoggingPage> {
+  int _selectedMood = 3;
+  double _moodIntensity = 5.0;
+  String _selectedMoodName = 'Neutral';
+  final TextEditingController _journalController = TextEditingController();
+
+  final List<String> _availableTags = ['Sleep', 'Relationship', 'Family', 'Work', 'Health', 'Social', 'Hobby'];
+  final Set<String> _selectedTags = {};
+
+  final Map<String, String> tagIcons = {
+    'Sleep': '😴',
+    'Relationship': '❤️',
+    'Family': '👨‍👩‍👧',
+    'Work': '💼',
+    'Health': '💪',
+    'Social': '🗣️',
+    'Hobby': '🎨',
+  };
+
+  final List<Map<String, dynamic>> _moodOptions = [
+    {'name': 'Very Sad', 'emoji': '😞', 'color': Colors.blue.shade900, 'bgColors': [Colors.blue.shade900, Colors.black]},
+    {'name': 'Sad', 'emoji': '😟', 'color': Colors.blue, 'bgColors': [Colors.blue, Colors.deepPurple]},
+    {'name': 'Neutral', 'emoji': '😐', 'color': Colors.grey, 'bgColors': [Colors.grey, Colors.black]},
+    {'name': 'Happy', 'emoji': '😊', 'color': Colors.orange, 'bgColors': [Colors.orange, Colors.red]},
+    {'name': 'Very Happy', 'emoji': '😄', 'color': Colors.yellow[700]!, 'bgColors': [Colors.yellow, Colors.orangeAccent]},
+  ];
+
+  void _updateMood(int moodIndex) {
+    HapticFeedback.lightImpact();
+    setState(() {
+      _selectedMood = moodIndex;
+      _selectedMoodName = _moodOptions[moodIndex - 1]['name'];
+    });
+  }
+
+  void _toggleTag(String tag) {
+    setState(() {
+      if (_selectedTags.contains(tag)) {
+        _selectedTags.remove(tag);
+      } else {
+        _selectedTags.add(tag);
+      }
+    });
+  }
+
+  void _logMood() async {
+    final Map<String, dynamic> moodData = {
+      'mood': _selectedMood,
+      'mood_name': _selectedMoodName,
+      'mood_intensity': _moodIntensity,
+      'timestamp': DateTime.now().toIso8601String(),
+      'journal_prompt': _generateSmartJournalPrompt(),
+      'mood_insight': _generateMoodInsight(),
+      'journal_entry': _journalController.text.trim(),
+      'tags': _selectedTags.toList(),
+    };
+
+    final prefs = await SharedPreferences.getInstance();
+    List<String> moodLogs = prefs.getStringList('mood_logs') ?? [];
+    moodLogs.add(json.encode(moodData));
+    await prefs.setStringList('mood_logs', moodLogs);
+
+    widget.onMoodLogged(moodData);
+
+    _journalController.clear();
+    setState(() {
+      _selectedTags.clear();
+    });
+  }
+
+  String _generateSmartJournalPrompt() {
+    List<String> prompts = [
+      "What made you feel this way today?",
+      "Is there something you're grateful for today?",
+      "What could make your day even better?",
+      "Is there a small action you can take to improve your mood?",
+      "Describe one thing that made you smile today.",
+    ];
+    return prompts[Random().nextInt(prompts.length)];
+  }
+
+  String _generateMoodInsight() {
+    if (_selectedMood == 1 || _selectedMood == 2) {
+      return "You've been feeling down lately. Try listening to calming music or going for a short walk.";
+    } else if (_selectedMood == 4 || _selectedMood == 5) {
+      return "You're in a great mood! Consider sharing your positivity with a friend.";
+    }
+    return "Maintaining a balanced mood is key. Keep track of your emotions to notice trends.";
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        double screenWidth = constraints.maxWidth;
+        double screenHeight = constraints.maxHeight;
+
+        double baseFontSize = screenWidth * 0.05;
+        double emojiSize = screenWidth < 600 ? 60 : 80;
+        double horizontalPadding = screenWidth * 0.04;
+        double verticalPadding = screenHeight * 0.02;
+
+        final currentMoodColors = _moodOptions[_selectedMood - 1]['bgColors'] as List<Color>;
+        final currentMoodColor = _moodOptions[_selectedMood - 1]['color'] as Color;
+
+        return Scaffold(
+          appBar: AppBar(
+            title: const Text('Mood Journal'),
+            backgroundColor: currentMoodColor,
+          ),
+          body: Container(
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                colors: currentMoodColors,
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+              ),
+            ),
+            child: SingleChildScrollView(
+              child: Padding(
+                padding: EdgeInsets.symmetric(
+                  horizontal: horizontalPadding,
+                  vertical: verticalPadding,
+                ),
+                child: Center(
+                  child: ConstrainedBox(
+                    constraints: const BoxConstraints(
+                      maxWidth: 600,
+                      minWidth: 300,
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.center,
+                      children: [
+                        // Emoji and Mood Name
+                        Column(
+                          children: [
+                            Text(
+                              _moodOptions[_selectedMood - 1]['emoji'],
+                              style: TextStyle(fontSize: emojiSize, height: 1.2),
+                            ),
+                            Text(
+                              _moodOptions[_selectedMood - 1]['name'],
+                              style: TextStyle(
+                                  fontSize: baseFontSize * 0.6,
+                                  fontWeight: FontWeight.bold,
+                                  color: Colors.white),
+                            ),
+                          ],
+                        ),
+                        SizedBox(height: verticalPadding),
+
+                        Text(
+                          'How are you feeling today?',
+                          style: TextStyle(
+                              fontSize: baseFontSize * 0.7,
+                              fontWeight: FontWeight.bold,
+                              color: Colors.white),
+                          textAlign: TextAlign.center,
+                        ),
+                        SizedBox(height: verticalPadding),
+
+                        // Mood Selector
+                        SingleChildScrollView(
+                          scrollDirection: Axis.horizontal,
+                          child: Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: _moodOptions.asMap().entries.map((entry) {
+                              int index = entry.key + 1;
+                              Map<String, dynamic> mood = entry.value;
+                              return GestureDetector(
+                                onTap: () => _updateMood(index),
+                                child: AnimatedContainer(
+                                  duration: const Duration(milliseconds: 300),
+                                  margin: EdgeInsets.symmetric(horizontal: screenWidth * 0.02),
+                                  padding: EdgeInsets.all(screenWidth * 0.02),
+                                  decoration: BoxDecoration(
+                                    color: _selectedMood == index
+                                        ? mood['color'] as Color
+                                        : Colors.white30,
+                                    shape: BoxShape.circle,
+                                    border: _selectedMood == index
+                                        ? Border.all(color: Colors.white, width: 2)
+                                        : null,
+                                  ),
+                                  child: Text(
+                                    mood['emoji'],
+                                    style: TextStyle(fontSize: screenWidth * 0.08),
+                                  ),
+                                ),
+                              );
+                            }).toList(),
+                          ),
+                        ),
+
+                        SizedBox(height: verticalPadding),
+
+                        // Mood Intensity
+                        Slider(
+                          value: _moodIntensity,
+                          min: 1,
+                          max: 10,
+                          divisions: 9,
+                          label: _moodIntensity.round().toString(),
+                          onChanged: (value) {
+                            setState(() {
+                              _moodIntensity = value;
+                            });
+                          },
+                        ),
+                        SizedBox(height: verticalPadding),
+
+                        // Tags Section
+                        Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'What is this related to?',
+                              style: TextStyle(
+                                  fontSize: baseFontSize * 0.5,
+                                  fontWeight: FontWeight.bold,
+                                  color: Colors.white),
+                            ),
+                            SizedBox(height: verticalPadding * 0.5),
+                            Wrap(
+                              spacing: 8.0,
+                              runSpacing: 8.0,
+                              children: _availableTags.map((tag) {
+                                final isSelected = _selectedTags.contains(tag);
+                                
+                                // Use the same background colors as the page background
+                                final List<Color> tagBackgroundColors = isSelected 
+                                    ? (currentMoodColors)
+                                    : [Colors.white10, Colors.white10];
+                                
+                                final textColor = isSelected
+                                    ? Colors.white
+                                    : Colors.white70;
+
+                                return GestureDetector(
+                                  onTap: () => _toggleTag(tag),
+                                  child: AnimatedContainer(
+                                    duration: const Duration(milliseconds: 250),
+                                    curve: Curves.easeInOut,
+                                    transform: isSelected
+                                        ? (Matrix4.identity()..scale(1.05))
+                                        : Matrix4.identity(),
+                                    decoration: BoxDecoration(
+                                      gradient: LinearGradient(
+                                        colors: tagBackgroundColors,
+                                        begin: Alignment.topLeft,
+                                        end: Alignment.bottomRight,
+                                      ),
+                                      borderRadius: BorderRadius.circular(20),
+                                      border: isSelected
+                                          ? Border.all(color: Colors.white, width: 1)
+                                          : Border.all(color: Colors.white24, width: 0.5),
+                                    ),
+                                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                                    child: Text(
+                                      '${tagIcons[tag]} $tag',
+                                      style: TextStyle(
+                                        color: textColor,
+                                        fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                                      ),
+                                    ),
+                                  ),
+                                );
+                              }).toList(),
+                            ),
+                          ],
+                        ),
+                        SizedBox(height: verticalPadding),
+
+                        // Prompt
+                        Text(
+                          '"${_generateSmartJournalPrompt()}"',
+                          style: TextStyle(
+                              fontSize: baseFontSize * 0.45,
+                              fontStyle: FontStyle.italic,
+                              color: Colors.white),
+                          textAlign: TextAlign.center,
+                        ),
+                        SizedBox(height: verticalPadding),
+
+                        // Journal
+                        TextField(
+                          controller: _journalController,
+                          maxLines: 4,
+                          decoration: InputDecoration(
+                            hintText: 'Write your thoughts here...',
+                            filled: true,
+                            fillColor: Colors.white24,
+                            border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(10),
+                              borderSide: BorderSide.none,
+                            ),
+                            hintStyle: const TextStyle(color: Colors.white70),
+                          ),
+                          style: const TextStyle(color: Colors.white),
+                        ),
+                        SizedBox(height: verticalPadding),
+
+                        // Insight
+                        Text(
+                          _generateMoodInsight(),
+                          style: TextStyle(
+                              fontSize: baseFontSize * 0.4,
+                              fontWeight: FontWeight.bold,
+                              color: Colors.white),
+                          textAlign: TextAlign.center,
+                        ),
+                        SizedBox(height: verticalPadding),
+
+                        // Save
+                        ElevatedButton(
+                          style: ElevatedButton.styleFrom(
+                            minimumSize: Size(screenWidth * 0.6, 50),
+                          ),
+                          onPressed: _logMood,
+                          child: const Text('Save Mood Entry'),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+}
