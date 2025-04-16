@@ -1,0 +1,583 @@
+// ignore_for_file: library_private_types_in_public_api, deprecated_member_use
+
+import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'dart:convert';
+import 'homepage.dart';
+
+class LoginSignupPage extends StatefulWidget {
+  const LoginSignupPage({super.key});
+
+  @override
+  _LoginSignupPageState createState() => _LoginSignupPageState();
+}
+
+class _LoginSignupPageState extends State<LoginSignupPage> with TickerProviderStateMixin {
+  bool _isLogin = true;
+  final _formKey = GlobalKey<FormState>();
+  final _emailController = TextEditingController();
+  final _passwordController = TextEditingController();
+  final _nameController = TextEditingController();
+  bool _isLoading = false;
+
+  late AnimationController _moodController;
+  late AnimationController _cloudController;
+  late Animation<double> _moodRotation;
+  late Animation<Offset> _cloudPosition;
+  
+  int _currentMoodEmoji = 0;
+  final List<IconData> _moodEmojis = [
+    Icons.sentiment_very_satisfied,
+    Icons.sentiment_satisfied,
+    Icons.sentiment_neutral,
+    Icons.sentiment_dissatisfied,
+    Icons.sentiment_very_dissatisfied,
+  ];
+
+  final List<Color> _moodColors = [
+    Colors.amber,
+    Colors.lightGreen,
+    Colors.lightBlue,
+    Colors.deepPurple.shade300,
+    Colors.pinkAccent,
+  ];
+
+  @override
+  void initState() {
+    super.initState();
+    
+    // Mood animation controller
+    _moodController = AnimationController(
+      vsync: this,
+      duration: const Duration(seconds: 10),
+    )..repeat();
+    
+    _moodRotation = Tween<double>(begin: 0, end: 2 * 3.14159)
+      .animate(CurvedAnimation(parent: _moodController, curve: Curves.linear));
+    
+    // Cloud animation controller
+    _cloudController = AnimationController(
+      vsync: this,
+      duration: const Duration(seconds: 8),
+    )..repeat(reverse: true);
+    
+    _cloudPosition = Tween<Offset>(begin: const Offset(-0.1, 0), end: const Offset(0.1, 0))
+      .animate(CurvedAnimation(parent: _cloudController, curve: Curves.easeInOut));
+    
+    // Change mood emoji periodically
+    Future.delayed(const Duration(seconds: 3), () {
+      _changeMoodEmoji();
+    });
+
+    // Check if user is already logged in
+    _checkLoginStatus();
+  }
+
+  // Check if user is already logged in
+  Future<void> _checkLoginStatus() async {
+    final prefs = await SharedPreferences.getInstance();
+    final isLoggedIn = prefs.getBool('isLoggedIn') ?? false;
+    
+    if (isLoggedIn) {
+      if (!mounted) return;
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(builder: (context) => const HomePage()),
+      );
+    }
+  }
+
+  void _changeMoodEmoji() {
+    if (!mounted) return;
+    
+    setState(() {
+      _currentMoodEmoji = (_currentMoodEmoji + 1) % _moodEmojis.length;
+    });
+    
+    Future.delayed(const Duration(seconds: 3), () {
+      _changeMoodEmoji();
+    });
+  }
+
+  @override
+  void dispose() {
+    _emailController.dispose();
+    _passwordController.dispose();
+    _nameController.dispose();
+    _moodController.dispose();
+    _cloudController.dispose();
+    super.dispose();
+  }
+
+  void _toggleMode() {
+    setState(() {
+      _isLogin = !_isLogin;
+    });
+  }
+
+  // Save user data to SharedPreferences
+  Future<void> _saveUserData(String email, String password, String name) async {
+    final prefs = await SharedPreferences.getInstance();
+    
+    // Store user credentials
+    await prefs.setString('userEmail', email);
+    
+    // For a real app, you should hash the password before storing it
+    await prefs.setString('userPassword', password);
+    
+    if (name.isNotEmpty) {
+      await prefs.setString('userName', name);
+    }
+    
+    // Also store all users for future logins
+    Map<String, dynamic> userData = {
+      'email': email,
+      'password': password, // In a real app, hash this
+      'name': name,
+    };
+    
+    // Get existing users or create new list
+    List<String> users = prefs.getStringList('users') ?? [];
+    
+    // Check if user already exists
+    bool userExists = false;
+    for (int i = 0; i < users.length; i++) {
+      Map<String, dynamic> user = jsonDecode(users[i]);
+      if (user['email'] == email) {
+        // Update existing user
+        users[i] = jsonEncode(userData);
+        userExists = true;
+        break;
+      }
+    }
+    
+    // Add new user if doesn't exist
+    if (!userExists) {
+      users.add(jsonEncode(userData));
+    }
+    
+    // Save updated user list
+    await prefs.setStringList('users', users);
+    
+    // Set login status
+    await prefs.setBool('isLoggedIn', true);
+  }
+
+  // Verify login credentials
+  Future<bool> _verifyLogin(String email, String password) async {
+    final prefs = await SharedPreferences.getInstance();
+    List<String>? users = prefs.getStringList('users');
+    
+    if (users == null) return false;
+    
+    for (String userJson in users) {
+      Map<String, dynamic> user = jsonDecode(userJson);
+      if (user['email'] == email && user['password'] == password) {
+        // Store current user info
+        await prefs.setString('userEmail', email);
+        await prefs.setString('userName', user['name'] ?? '');
+        await prefs.setBool('isLoggedIn', true);
+        return true;
+      }
+    }
+    
+    return false;
+  }
+
+  void _showMessage(String message) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(message)),
+    );
+  }
+
+  Future<void> _handleSubmit() async {
+    if (_formKey.currentState!.validate()) {
+      setState(() {
+        _isLoading = true;
+      });
+      
+      try {
+        if (_isLogin) {
+          // Handle login
+          bool success = await _verifyLogin(
+            _emailController.text, 
+            _passwordController.text
+          );
+          
+          if (success) {
+            if (!mounted) return;
+            Navigator.pushReplacement(
+              context,
+              MaterialPageRoute(builder: (context) => const HomePage()),
+            );
+          } else {
+            if (!mounted) return;
+            _showMessage('Invalid email or password');
+          }
+        } else {
+          // Handle signup
+          await _saveUserData(
+            _emailController.text,
+            _passwordController.text,
+            _nameController.text,
+          );
+          
+          if (!mounted) return;
+          Navigator.pushReplacement(
+            context,
+            MaterialPageRoute(builder: (context) => const HomePage()),
+          );
+        }
+      } catch (e) {
+        if (!mounted) return;
+        _showMessage('Error: ${e.toString()}');
+      } finally {
+        if (mounted) {
+          setState(() {
+            _isLoading = false;
+          });
+        }
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final screenSize = MediaQuery.of(context).size;
+    
+    return Scaffold(
+      body: Stack(
+        children: [
+          // Background with pastel color that changes with mood
+          AnimatedContainer(
+            duration: const Duration(milliseconds: 500),
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                colors: [
+                  _moodColors[_currentMoodEmoji].withOpacity(0.7),
+                  Colors.white,
+                ],
+                begin: Alignment.topRight,
+                end: Alignment.bottomLeft,
+              ),
+            ),
+          ),
+          
+          // Floating clouds
+          Positioned(
+            top: screenSize.height * 0.1,
+            right: screenSize.width * 0.1,
+            child: SlideTransition(
+              position: _cloudPosition,
+              child: const Icon(
+                Icons.cloud,
+                size: 60,
+                color: Colors.white,
+              ),
+            ),
+          ),
+          
+          Positioned(
+            top: screenSize.height * 0.2,
+            left: screenSize.width * 0.15,
+            child: SlideTransition(
+              position: _cloudPosition,
+              child: const Icon(
+                Icons.cloud,
+                size: 40,
+                color: Colors.white70,
+              ),
+            ),
+          ),
+          
+          // Main content
+          SafeArea(
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.all(20),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.center,
+                children: [
+                  SizedBox(height: screenSize.height * 0.05),
+                  
+                  // Animated mood icon
+                  Hero(
+                    tag: 'mood_icon',
+                    child: AnimatedBuilder(
+                      animation: _moodRotation,
+                      builder: (context, child) {
+                        return Transform.rotate(
+                          angle: _moodRotation.value,
+                          child: AnimatedSwitcher(
+                            duration: const Duration(milliseconds: 500),
+                            child: Icon(
+                              _moodEmojis[_currentMoodEmoji],
+                              key: ValueKey<int>(_currentMoodEmoji),
+                              size: 80,
+                              color: _moodColors[_currentMoodEmoji],
+                            ),
+                          ),
+                        );
+                      },
+                    ),
+                  ),
+                  
+                  const SizedBox(height: 20),
+                  
+                  Text(
+                    _isLogin ? 'Welcome Back!' : 'Join Zenith',
+                    style: const TextStyle(
+                      fontSize: 28,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  
+                  const SizedBox(height: 10),
+                  
+                  Text(
+                    _isLogin 
+                      ? 'We missed tracking your moods!' 
+                      : 'Start your journey to better days',
+                    style: TextStyle(
+                      fontSize: 16,
+                      color: Colors.grey.shade700,
+                    ),
+                  ),
+                  
+                  const SizedBox(height: 40),
+                  
+                  // Bouncy form container
+                  TweenAnimationBuilder<double>(
+                    tween: Tween<double>(begin: 0.8, end: 1.0),
+                    duration: const Duration(milliseconds: 500),
+                    curve: Curves.elasticOut,
+                    builder: (context, value, child) {
+                      return Transform.scale(
+                        scale: value,
+                        child: Container(
+                          padding: const EdgeInsets.all(20),
+                          decoration: BoxDecoration(
+                            color: Colors.white,
+                            borderRadius: BorderRadius.circular(20),
+                            boxShadow: [
+                              BoxShadow(
+                                color: Colors.grey.withOpacity(0.2),
+                                spreadRadius: 3,
+                                blurRadius: 10,
+                                offset: const Offset(0, 4),
+                              ),
+                            ],
+                          ),
+                          child: Form(
+                            key: _formKey,
+                            child: Column(
+                              children: [
+                                // Name field (only for signup)
+                                if (!_isLogin) ...[
+                                  TextFormField(
+                                    controller: _nameController,
+                                    decoration: InputDecoration(
+                                      labelText: 'Name',
+                                      prefixIcon: const Icon(Icons.person_outline),
+                                      border: OutlineInputBorder(
+                                        borderRadius: BorderRadius.circular(15),
+                                      ),
+                                      filled: true,
+                                      fillColor: Colors.grey.shade50,
+                                    ),
+                                    validator: (value) {
+                                      if (!_isLogin && (value == null || value.isEmpty)) {
+                                        return 'Please enter your name';
+                                      }
+                                      return null;
+                                    },
+                                  ),
+                                  const SizedBox(height: 15),
+                                ],
+                                
+                                // Email field
+                                TextFormField(
+                                  controller: _emailController,
+                                  decoration: InputDecoration(
+                                    labelText: 'Email',
+                                    prefixIcon: const Icon(Icons.email_outlined),
+                                    border: OutlineInputBorder(
+                                      borderRadius: BorderRadius.circular(15),
+                                    ),
+                                    filled: true,
+                                    fillColor: Colors.grey.shade50,
+                                  ),
+                                  validator: (value) {
+                                    if (value == null || value.isEmpty) {
+                                      return 'Please enter your email';
+                                    }
+                                    if (!value.contains('@')) {
+                                      return 'Please enter a valid email';
+                                    }
+                                    return null;
+                                  },
+                                ),
+                                
+                                const SizedBox(height: 15),
+                                
+                                // Password field
+                                TextFormField(
+                                  controller: _passwordController,
+                                  obscureText: true,
+                                  decoration: InputDecoration(
+                                    labelText: 'Password',
+                                    prefixIcon: const Icon(Icons.lock_outline),
+                                    border: OutlineInputBorder(
+                                      borderRadius: BorderRadius.circular(15),
+                                    ),
+                                    filled: true,
+                                    fillColor: Colors.grey.shade50,
+                                  ),
+                                  validator: (value) {
+                                    if (value == null || value.isEmpty) {
+                                      return 'Please enter your password';
+                                    }
+                                    if (!_isLogin && value.length < 6) {
+                                      return 'Password must be at least 6 characters';
+                                    }
+                                    return null;
+                                  },
+                                ),
+                                
+                                const SizedBox(height: 10),
+                                
+                                // Forgot password (only for login)
+                                if (_isLogin)
+                                  Align(
+                                    alignment: Alignment.centerRight,
+                                    child: TextButton(
+                                      onPressed: () {
+                                        // Forgot password logic would go here
+                                        _showMessage('Password reset not implemented yet');
+                                      },
+                                      child: const Text(
+                                        'Forgot Password?',
+                                        style: TextStyle(color: Colors.blueAccent),
+                                      ),
+                                    ),
+                                  ),
+                                
+                                const SizedBox(height: 20),
+                                
+                                // Submit button with animated mood icon
+                                ElevatedButton(
+                                  style: ElevatedButton.styleFrom(
+                                    backgroundColor: _moodColors[_currentMoodEmoji],
+                                    foregroundColor: Colors.white,
+                                    padding: const EdgeInsets.symmetric(horizontal: 50, vertical: 12),
+                                    shape: RoundedRectangleBorder(
+                                      borderRadius: BorderRadius.circular(30),
+                                    ),
+                                    elevation: 5,
+                                  ),
+                                  onPressed: _isLoading ? null : _handleSubmit,
+                                  child: _isLoading
+                                    ? const SizedBox(
+                                        width: 20,
+                                        height: 20,
+                                        child: CircularProgressIndicator(
+                                          color: Colors.white,
+                                          strokeWidth: 2,
+                                        ),
+                                      )
+                                    : Row(
+                                        mainAxisSize: MainAxisSize.min,
+                                        children: [
+                                          Text(
+                                            _isLogin ? 'Login' : 'Sign Up',
+                                            style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                                          ),
+                                          const SizedBox(width: 8),
+                                          Icon(_moodEmojis[_currentMoodEmoji], size: 20),
+                                        ],
+                                      ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      );
+                    }
+                  ),
+                  
+                  const SizedBox(height: 20),
+                  
+                  // Toggle between login and signup
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Text(
+                        _isLogin ? 'Don\'t have an account?' : 'Already have an account?',
+                        style: TextStyle(color: Colors.grey.shade700),
+                      ),
+                      TextButton(
+                        onPressed: _toggleMode,
+                        child: Text(
+                          _isLogin ? 'Sign Up' : 'Login',
+                          style: TextStyle(
+                            color: _moodColors[_currentMoodEmoji],
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  
+                  // Social login options
+                  const SizedBox(height: 20),
+                  
+                  const Text(
+                    'Or continue with',
+                    style: TextStyle(color: Colors.grey),
+                  ),
+                  
+                  const SizedBox(height: 15),
+                  
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      _socialButton(Icons.g_mobiledata, Colors.redAccent),
+                      const SizedBox(width: 20),
+                      _socialButton(Icons.apple, Colors.black),
+                      const SizedBox(width: 20),
+                      _socialButton(Icons.facebook, Colors.blue),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+  
+  Widget _socialButton(IconData icon, Color color) {
+    return InkWell(
+      onTap: () {
+        // Social login logic would go here
+        _showMessage('Social login not implemented yet');
+      },
+      child: Container(
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          shape: BoxShape.circle,
+          boxShadow: [
+            BoxShadow(
+              color: Colors.grey.withOpacity(0.2),
+              spreadRadius: 2,
+              blurRadius: 5,
+              offset: const Offset(0, 2),
+            ),
+          ],
+        ),
+        child: Icon(icon, color: color, size: 30),
+      ),
+    );
+  }
+}
